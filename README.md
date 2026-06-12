@@ -16,6 +16,19 @@ It is shared as a working result and investigation record, not as a complete or 
 
 Please read the known limitations before testing, especially the notes about sound profile / configuration switching.
 
+## Quick start
+
+Apply the patch to an unmodified Linux 6.19.12 source tree:
+
+    patch -p1 < /path/to/imac18-3-cs8409-speaker-fedora-6.19.12.patch
+
+Build the affected objects:
+
+    make sound/hda/codecs/cirrus/cs8409.o
+    make sound/hda/codecs/cirrus/cs8409-tables.o
+
+See the sections below for details, limitations, and feedback information.
+
 ## Target environment
 
 Tested environment:
