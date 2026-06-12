@@ -165,6 +165,9 @@ Useful information includes:
 - Built-in speaker behavior
 - Left/right balance behavior
 - High/low or upper/lower speaker balance impression
+- Sound profile / configuration switching behavior
+- Whether Analog Stereo Output restores playback after switching profiles
+- Unexpectedly loud noise after switching profiles, if any
 - Pop noise at shutdown, if any
 - Headphone switching status, if tested
 - Microphone input status, if tested
