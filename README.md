@@ -52,11 +52,14 @@ However, the internal speaker routing may not be identical to Apple's original s
 
 ### Sound profile / configuration switching
 
-Changing the sound profile / configuration in the desktop sound settings may temporarily disturb or break playback.
+> [!WARNING]
+> Changing the sound profile / configuration in the desktop sound settings may temporarily disturb or break playback.
+>
+> The previous volume state may not be preserved when switching profiles. After switching back to Analog Stereo Output, playback may resume with unexpectedly loud noise.
+>
+> Please lower the volume before testing profile changes.
 
 In the tested environment, switching the profile back to Analog Stereo Output restored playback without requiring a manual driver reset.
-
-However, the previous volume state may not be preserved when switching profiles. After switching back, playback may resume with unexpectedly loud noise. Please lower the volume before testing profile changes.
 
 This behavior is documented as an observed limitation. It may also be useful for further investigation by others.
 
