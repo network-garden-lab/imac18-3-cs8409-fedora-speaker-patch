@@ -8,6 +8,14 @@ The iMac18,3 audio system uses a CS8409 HDA codec together with Apple-specific e
 
 This patch adds an iMac18,3-specific CS8409 fixup that initializes the required CS42L83 / TAS576 amplifier path and keeps the built-in speaker playback route stable.
 
+## Experimental status
+
+This patch is experimental and has only been tested on one iMac18,3 system.
+
+It is shared as a working result and investigation record, not as a complete or upstream-ready solution.
+
+Please read the known limitations before testing, especially the notes about sound profile / configuration switching.
+
 ## Target environment
 
 Tested environment:
