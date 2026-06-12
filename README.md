@@ -50,6 +50,16 @@ Built-in speaker playback is stable enough for normal use in the tested environm
 
 However, the internal speaker routing may not be identical to Apple's original speaker tuning.
 
+### Sound profile / configuration switching
+
+Changing the sound profile / configuration in the desktop sound settings may temporarily disturb or break playback.
+
+In the tested environment, switching the profile back to Analog Stereo Output restored playback without requiring a manual driver reset.
+
+However, the previous volume state may not be preserved when switching profiles. After switching back, playback may resume with unexpectedly loud noise. Please lower the volume before testing profile changes.
+
+This behavior is documented as an observed limitation. It may also be useful for further investigation by others.
+
 At the center balance position, the sound is usable in normal listening and may not feel obviously wrong to most users. However, when changing the left/right balance in the desktop sound settings, or by using pactl, the balance does not behave exactly like normal left/right stereo.
 
 Observed behavior:
