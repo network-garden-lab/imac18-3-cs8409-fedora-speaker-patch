@@ -168,6 +168,33 @@ Useful logs:
 
 Reports of both success and failure are useful. Failure reports are especially helpful if they include the exact model, kernel version, and relevant dmesg output.
 
+## License and provenance
+
+This repository contains a patch intended to be applied to the Linux kernel source tree.
+
+The patch modifies CS8409-related Linux kernel driver files and is provided under the GPL-2.0-only license, in line with the licensing of the Linux kernel source tree.
+
+This repository does not attempt to relicense the original Linux kernel code. The patch should be understood as a set of changes against the upstream Linux kernel source.
+
+Please refer to the Linux kernel source tree and its licensing documentation for the license terms of the original files.
+
+## Acknowledgements
+
+This work was made possible by studying existing public information, Linux kernel source code, community reports, and real hardware behavior on an iMac18,3 system.
+
+Related public work and references include:
+
+- The Linux kernel project and its HDA / Cirrus codec driver sources
+- Fedora and Ubuntu Linux environments used for comparison and testing
+- Public CS8409 / Apple HDA codec investigation work, including community repositories and issue discussions
+- egorenar/snd-hda-codec-cs8409
+- davidjo/snd_hda_macbookpro
+- Public reports from GitHub Issues, forums, Reddit, and other community notes related to Apple CS8409 audio behavior
+
+ChatGPT was used as an assistant for log interpretation, hypothesis organization, code review, cleanup planning, and documentation drafting.
+
+All code changes were applied, built, boot-tested, and audio-tested manually on the actual iMac18,3 hardware.
+
 ## Development process
 
 This patch was developed through an iterative, human-led debugging process on a real iMac18,3 machine.
