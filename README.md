@@ -1,0 +1,210 @@
+# iMac18,3 CS8409 Built-in Speaker Patch for Fedora 6.19.12
+
+## Overview
+
+This patch enables built-in speaker playback on the 2017 27-inch iMac 5K / iMac18,3 running Fedora with Linux kernel 6.19.12.
+
+The iMac18,3 audio system uses a CS8409 HDA codec together with Apple-specific external amplifier control. On Fedora, the internal HDA audio path can work, but the built-in speakers may remain silent unless the external amplifier initialization sequence is executed.
+
+This patch adds an iMac18,3-specific CS8409 fixup that initializes the required CS42L83 / TAS576 amplifier path and keeps the built-in speaker playback route stable.
+
+## Target environment
+
+Tested environment:
+
+- Machine: iMac 2017 27-inch 5K
+- Model ID: iMac18,3
+- OS: Fedora
+- Kernel source: Linux 6.19.12
+- Audio path: CS8409 / CS42L83 / TAS576
+- Target output: Built-in speakers
+
+## What works
+
+Confirmed in the tested environment:
+
+- Built-in speaker playback works
+- YouTube / normal desktop playback works
+- ALSA / PipeWire analog-stereo output works
+- The patch applies cleanly to an unmodified linux-6.19.12 source tree
+- cs8409.o builds successfully
+- cs8409-tables.o builds successfully
+
+## What is not covered
+
+This patch currently focuses only on built-in speaker playback.
+
+Not covered:
+
+- Headphone switching
+- Internal microphone input
+- External microphone input
+- Apple-equivalent speaker tuning
+- Other iMac / MacBook models
+- Other kernel versions
+- Ubuntu patch replacement
+
+## Known limitations
+
+Built-in speaker playback is stable enough for normal use in the tested environment.
+
+However, the internal speaker routing may not be identical to Apple's original speaker tuning.
+
+At the center balance position, the sound is usable in normal listening and may not feel obviously wrong to most users. However, when changing the left/right balance in the desktop sound settings, or by using pactl, the balance does not behave exactly like normal left/right stereo.
+
+Observed behavior:
+
+- Left balance:
+  - Higher frequencies sound stronger
+  - Upper speaker side seems more prominent
+
+- Center balance:
+  - Usable for normal listening
+  - Slight tonal / spatial imbalance may be noticeable if listening carefully
+
+- Right balance:
+  - Lower frequencies sound stronger
+  - Lower speaker side seems more prominent
+  - Sound may feel more muffled
+
+This suggests that the current routing may still be affected by the iMac internal high/low or upper/lower speaker paths rather than perfectly reproducing Apple's original stereo speaker mapping.
+
+This is documented here for transparency.
+
+## Patch file
+
+Patch:
+
+    patches/imac18-3-cs8409-speaker-fedora-6.19.12.patch
+
+The patch modifies only these files:
+
+    sound/hda/codecs/cirrus/cs8409.c
+    sound/hda/codecs/cirrus/cs8409.h
+    sound/hda/codecs/cirrus/cs8409-tables.c
+
+## Applying the patch
+
+From the root of an unmodified Linux 6.19.12 source tree:
+
+    patch -p1 < /path/to/imac18-3-cs8409-speaker-fedora-6.19.12.patch
+
+Expected result:
+
+    patching file sound/hda/codecs/cirrus/cs8409.c
+    patching file sound/hda/codecs/cirrus/cs8409.h
+    patching file sound/hda/codecs/cirrus/cs8409-tables.c
+
+## Build check
+
+A minimal compile check can be done with:
+
+    make sound/hda/codecs/cirrus/cs8409.o
+    make sound/hda/codecs/cirrus/cs8409-tables.o
+
+Expected result:
+
+    CC [M]  sound/hda/codecs/cirrus/cs8409.o
+    CC [M]  sound/hda/codecs/cirrus/cs8409-tables.o
+
+Note:
+
+Building these .o files only confirms that the patched source compiles. To actually use the patch, the patched driver must be built and installed as part of the kernel / module build process.
+
+## Runtime confirmation
+
+After installing the patched kernel or module and rebooting, check dmesg:
+
+    sudo dmesg | grep -iE "imac|cs8409|cs42l83|tas576"
+
+Expected iMac-specific log examples:
+
+    iMac probe hook setup
+    iMac amp init start
+    iMac TAS576 boot reset setup start
+    iMac TAS576 TDM slot setup start
+    iMac speaker DAC 0x02/0x03 stream clear skipped
+    iMac amp init end
+
+## Debug logs
+
+The public-clean version keeps normal dmesg output relatively quiet.
+
+Important phase logs remain as codec_info(), while detailed register read/write logs were moved to codec_dbg().
+
+Normal logs show major initialization phases. Debug logs keep detailed I2C / COEF / GPIO / playback hook information.
+
+If low-level tracing is needed, enable dynamic debug for the CS8409 driver.
+
+## Feedback and test reports
+
+Feedback from other users is welcome.
+
+This patch has been tested on one iMac18,3 environment, but the CS8409 / CS42L83 / TAS576 audio path may behave differently depending on kernel version, distribution, firmware state, and hardware revision.
+
+If you test this patch, please share your result.
+
+Useful information includes:
+
+- Machine model
+- Distribution
+- Kernel version
+- Patch result
+- Build result
+- Runtime result
+- Built-in speaker behavior
+- Left/right balance behavior
+- High/low or upper/lower speaker balance impression
+- Pop noise at shutdown, if any
+- Headphone switching status, if tested
+- Microphone input status, if tested
+
+Useful logs:
+
+    sudo dmesg | grep -iE "imac|cs8409|cs42l83|tas576"
+    aplay -l
+    pactl get-default-sink
+    pactl get-sink-volume @DEFAULT_SINK@
+
+Reports of both success and failure are useful. Failure reports are especially helpful if they include the exact model, kernel version, and relevant dmesg output.
+
+## Development process
+
+This patch was developed through an iterative, human-led debugging process on a real iMac18,3 machine.
+
+ChatGPT was used as an assistant for log interpretation, hypothesis organization, code review, cleanup planning, and documentation drafting. All code changes were applied and tested manually on the actual hardware.
+
+The final patch was verified by applying it to a clean linux-6.19.12 source tree and building the modified CS8409-related objects.
+
+## Development notes
+
+This patch is based on the finding that Fedora's CS8409 HDA path can output PCM correctly, but the iMac built-in speakers remain silent unless the Apple-specific external amplifier path is initialized.
+
+The key route is:
+
+    PCM -> CS8409 DAC -> Speaker Pin -> CS42L83 / TAS576 amplifier -> Built-in speakers
+
+Without amplifier initialization:
+
+- PCM path works
+- Speaker pins can be controlled
+- External output may work
+- Built-in speakers remain silent
+
+With this patch:
+
+- The iMac18,3-specific fixup initializes the external amplifier path
+- Built-in speaker playback becomes available
+- Speaker DAC cleanup behavior is adjusted to keep playback stable
+
+## Status
+
+Current status:
+
+- Built-in speaker playback: working
+- Normal desktop playback: working
+- Patch application test: passed
+- Compile test: passed
+- Headphones: not handled
+- Microphone: not handled
+- Speaker tuning: not Apple-equivalent / not fully verified
