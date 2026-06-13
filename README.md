@@ -199,6 +199,10 @@ This patch has been tested on one iMac18,3 environment, but the CS8409 / CS42L83
 
 If you test this patch, please share your result.
 
+Please open a GitHub Issue for test reports, questions, reproduction results, or failure reports.
+
+Both successful and unsuccessful test results are useful, especially if you are using the same iMac18,3 model with a different Fedora or kernel version.
+
 Useful information includes:
 
 - Machine model
