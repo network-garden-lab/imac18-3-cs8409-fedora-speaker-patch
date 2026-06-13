@@ -240,9 +240,7 @@ Related public work and references include:
 - davidjo/snd_hda_macbookpro
 - Public reports from GitHub Issues, forums, Reddit, and other community notes related to Apple CS8409 audio behavior
 
-ChatGPT was used as an assistant for log interpretation, hypothesis organization, code review, cleanup planning, and documentation drafting.
-
-All code changes were applied, built, boot-tested, and audio-tested manually on the actual iMac18,3 hardware.
+Thanks also to the public technical information and community reports that helped guide this investigation.
 
 ## Development process
 
