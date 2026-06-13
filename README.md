@@ -80,6 +80,13 @@ However, the internal speaker routing may not be identical to Apple's original s
 >
 > Please lower the volume before testing profile changes.
 
+> [!NOTE]
+> This patch is intended for the analog-stereo built-in speaker output path.
+>
+> Some desktop sound profiles such as 2.1ch or 4.0ch may appear in PipeWire / desktop sound settings, but they do not currently correspond to a verified or supported iMac18,3 internal speaker mapping in this patch.
+>
+> Similar profile options were also observed on a working Ubuntu 22.04 setup, so their presence is not specific to this patch.
+
 In the tested environment, switching the profile back to Analog Stereo Output restored playback without requiring a manual driver reset.
 
 This behavior is documented as an observed limitation. It may also be useful for further investigation by others.
