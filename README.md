@@ -10,6 +10,13 @@ This patch adds an iMac18,3-specific CS8409 fixup that initializes the required 
 
 Japanese supplemental notes are available in [README_JA.md](README_JA.md).
 
+## Related article
+
+A Japanese technical report is available on Qiita.  
+Non-Japanese readers may use browser translation if needed.
+
+- [FedoraでiMac 2017 Retina 5K（iMac18,3）の内蔵スピーカーを鳴らした記録](https://qiita.com/network-garden-lab/items/45c2c7a2f270b0828271)
+
 ## Experimental status
 
 This patch is experimental and has only been tested on one iMac18,3 system.
