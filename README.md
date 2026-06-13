@@ -160,6 +160,18 @@ Expected iMac-specific log examples:
     iMac speaker DAC 0x02/0x03 stream clear skipped
     iMac amp init end
 
+Also check the audio device and current PipeWire sink:
+
+    aplay -l
+    pactl get-default-sink
+    pactl list short sinks
+
+Then test playback with a low volume first:
+
+    speaker-test -c 2 -t wav
+
+Start with a low volume, especially if you have changed the sound profile / configuration.
+
 ## Debug logs
 
 The public-clean version keeps normal dmesg output relatively quiet.
