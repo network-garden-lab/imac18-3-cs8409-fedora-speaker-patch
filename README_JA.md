@@ -1,5 +1,24 @@
 # iMac18,3 CS8409 Fedora 内蔵スピーカーパッチ 日本語補足
 
+## Fedora 44 / kernel 7.0.12 用テストパッチ
+
+Fedora 44 / kernel 7.0.12-201.fc44.x86_64 向けの実験的テストパッチを追加しました。
+
+- パッチ：`patches/imac18-3-cs8409-speaker-fedora-7.0.12.patch`
+- 検証メモ：`FEDORA_44_KERNEL_7.0.12_TEST_NOTES.md`
+
+自分の iMac18,3 環境では、この7.0.12用テストパッチにより、内蔵スピーカーからの通常再生を確認しました。PipeWire経由、Firefox / YouTube再生も確認済みです。
+
+ただし、これはFedora 6.19.12用パッチを置き換えるものではなく、Fedora 44 / kernel 7.0.12向けの追加検証用パッチです。
+
+未対応事項は残っています。
+
+- ヘッドフォン切替は未対応
+- マイク入力は未対応
+- 他出力／別プロファイルへの切替では音声状態が崩れる可能性あり
+- `out of range cmd` や一時的なCS42L83 I2C read/write failureはログに残る可能性あり
+
+
 このリポジトリは、2017年 27インチ iMac 5K / iMac18,3 に Fedora Linux を導入した際、CS8409 / CS42L83 / TAS576 系の内蔵スピーカーを鳴らすためのパッチと検証記録を公開するものです。
 
 メインの説明は英語版 `README.md` に記載しています。

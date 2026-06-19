@@ -1,4 +1,22 @@
-# iMac18,3 CS8409 Built-in Speaker Patch for Fedora 6.19.12
+# iMac18,3 CS8409 Built-in Speaker Patch for Fedora
+
+## Fedora 44 / kernel 7.0.12 test patch
+
+An experimental test patch for Fedora 44 / kernel 7.0.12-201.fc44.x86_64 has been added.
+
+- Patch: `patches/imac18-3-cs8409-speaker-fedora-7.0.12.patch`
+- Test notes: `FEDORA_44_KERNEL_7.0.12_TEST_NOTES.md`
+
+On my iMac18,3, this 7.0.12 test patch enables internal speaker playback through normal desktop audio paths, including PipeWire and Firefox / YouTube playback.
+
+This does not replace the Fedora 6.19.12 patch. It is provided as an additional experimental test patch for Fedora 44 / kernel 7.0.12.
+
+Known limitations still remain:
+
+- headphone switching is not fixed
+- microphone input is not fixed
+- other output/profile switching may still disturb the audio state
+- kernel log warnings such as `out of range cmd` and temporary CS42L83 I2C read/write failures may still appear
 
 ## Overview
 
