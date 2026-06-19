@@ -18,9 +18,19 @@ Known limitations still remain:
 - other output/profile switching may still disturb the audio state
 - kernel log warnings such as `out of range cmd` and temporary CS42L83 I2C read/write failures may still appear
 
+### Fedora 44 / kernel 7.0.12 usage
+
+For Fedora 44 / kernel 7.0.12-201.fc44.x86_64, use the 7.0.12-specific patch:
+
+    patch -p1 < patches/imac18-3-cs8409-speaker-fedora-7.0.12.patch
+
+The general build and install flow is the same as the Fedora 6.19.12 instructions, but make sure you are working with a matching Fedora 44 / kernel 7.0.12 source tree and the matching kernel build files for your running kernel.
+
+Do not apply the Fedora 6.19.12 patch directly to kernel 7.0.12. Use the dedicated 7.0.12 test patch instead.
+
 ## Overview
 
-This patch enables built-in speaker playback on the 2017 27-inch iMac 5K / iMac18,3 running Fedora with Linux kernel 6.19.12.
+This repository provides experimental CS8409 patches and test notes for enabling built-in speaker playback on the 2017 27-inch iMac 5K / iMac18,3 running Fedora. The original confirmed patch targets Fedora kernel 6.19.12, and an additional experimental test patch is available for Fedora 44 / kernel 7.0.12.
 
 The iMac18,3 audio system uses a CS8409 HDA codec together with Apple-specific external amplifier control. On Fedora, the internal HDA audio path can work, but the built-in speakers may remain silent unless the external amplifier initialization sequence is executed.
 
