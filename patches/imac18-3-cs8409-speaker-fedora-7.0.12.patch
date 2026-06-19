@@ -1,0 +1,1312 @@
+diff -ruN clean/sound/hda/codecs/cirrus/cs8409-tables.c modified/sound/hda/codecs/cirrus/cs8409-tables.c
+--- clean/sound/hda/codecs/cirrus/cs8409-tables.c	2026-06-19 21:05:01.343621497 +0900
++++ modified/sound/hda/codecs/cirrus/cs8409-tables.c	2026-06-19 21:05:01.484621365 +0900
+@@ -47,6 +47,8 @@
+ 
+ const struct hda_pcm_stream cs42l42_48k_pcm_analog_playback = {
+ 	.rates = SNDRV_PCM_RATE_48000, /* fixed rate */
++	.formats = SNDRV_PCM_FMTBIT_S32_LE,
++	.maxbps = 32,
+ };
+ 
+ const struct hda_pcm_stream cs42l42_48k_pcm_analog_capture = {
+@@ -618,6 +620,7 @@
+ 	SND_PCI_QUIRK(0x1028, 0x0C75, "Dolphin", CS8409_DOLPHIN),
+ 	SND_PCI_QUIRK(0x1028, 0x0C7D, "Dolphin", CS8409_DOLPHIN),
+ 	SND_PCI_QUIRK(0x1028, 0x0C7F, "Dolphin", CS8409_DOLPHIN),
++	SND_PCI_QUIRK(0x106b, 0x1000, "iMac18,3", CS8409_FIXUP_IMAC_AMP),
+ 	{} /* terminator */
+ };
+ 
+@@ -630,6 +633,7 @@
+ 	{ .id = CS8409_DOLPHIN, .name = "dolphin" },
+ 	{ .id = CS8409_ODIN, .name = "odin" },
+ 	{ .id = CS8409_CDB35L56_FOUR_HD, .name = "CDB35L56-FOUR-HD" },
++	{ .id = CS8409_FIXUP_IMAC_AMP, .name = "imac18,3 amp" },
+ 	{}
+ };
+ 
+@@ -694,4 +698,8 @@
+ 		.type = HDA_FIXUP_FUNC,
+ 		.v.func = cs8409_cdb35l56_four_autodet_fixup,
+ 	},
++	[CS8409_FIXUP_IMAC_AMP] = {
++		.type = HDA_FIXUP_FUNC,
++		.v.func = cs8409_fixup_imac_amp,
++	},
+ };
+diff -ruN clean/sound/hda/codecs/cirrus/cs8409.c modified/sound/hda/codecs/cirrus/cs8409.c
+--- clean/sound/hda/codecs/cirrus/cs8409.c	2026-06-19 21:05:01.331621508 +0900
++++ modified/sound/hda/codecs/cirrus/cs8409.c	2026-06-19 21:05:01.387621456 +0900
+@@ -87,6 +87,82 @@
+ 	snd_hda_codec_write(codec, CS8409_PIN_VENDOR_WIDGET, 0, AC_VERB_SET_PROC_COEF, coef);
+ }
+ 
++static void imac_enable_i2c(struct hda_codec *codec)
++{
++	struct cs8409_spec *spec = codec->spec;
++
++	guard(mutex)(&spec->i2c_mux);
++
++	snd_hda_codec_write(codec, CS8409_PIN_VENDOR_WIDGET, 0,
++			    AC_VERB_SET_PROC_STATE, 0x01);
++
++	cs8409_vendor_coef_set(codec, 0x0030, 0x9008);
++	cs8409_vendor_coef_set(codec, 0x0002, 0x0080);
++	cs8409_vendor_coef_set(codec, 0x005b, 0x0010);
++	cs8409_vendor_coef_set(codec, 0x0030, 0x9000);
++
++	spec->i2c_clck_enabled = 1;
++}
++
++static void imac_gpio_reset(struct hda_codec *codec)
++{
++	codec_info(codec, "iMac gpio reset start\n");
++
++	/* Ubuntu enable_GPIforUR(codec, 0xd) equivalent */
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_MASK, 0x0d);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_DIRECTION, 0x00);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_WAKE_MASK, 0x01);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_UNSOLICITED_RSP_MASK, 0x01);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    0x7f0, 0x003000b7);
++
++	/* Ubuntu cs42l83_external_control_GPIO(codec, 0xf) clear */
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_DIRECTION, 0x02);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_DATA, 0x00);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_MASK, 0x0f);
++
++	usleep_range(2000, 4000);
++
++	/* Ubuntu cs42l83_external_control_GPIO(codec, 0xf) set */
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_DIRECTION, 0x02);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_DATA, 0x02);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_MASK, 0x0f);
++
++	usleep_range(2000, 4000);
++
++	/* Ubuntu setup_gpio_set_10 equivalent */
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_DIRECTION, 0x12);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_DATA, 0x12);
++	snd_hda_codec_write(codec, codec->core.afg, 0,
++			    AC_VERB_SET_GPIO_MASK, 0x1f);
++
++	codec_dbg(codec, "iMac GPIO DATA after reset = 0x%x\n",
++		   snd_hda_codec_read(codec, codec->core.afg, 0,
++				      AC_VERB_GET_GPIO_DATA, 0));
++
++	codec_dbg(codec, "iMac GPIO MASK after reset = 0x%x\n",
++		   snd_hda_codec_read(codec, codec->core.afg, 0,
++				      AC_VERB_GET_GPIO_MASK, 0));
++
++	codec_dbg(codec, "iMac GPIO DIRECTION after reset = 0x%x\n",
++		   snd_hda_codec_read(codec, codec->core.afg, 0,
++				      AC_VERB_GET_GPIO_DIRECTION, 0));
++
++	codec_info(codec, "iMac gpio reset end\n");
++}
++
+ /*
+  * cs8409_enable_i2c_clock - Disable I2C clocks
+  * @codec: the codec instance
+@@ -310,6 +386,894 @@
+ 	return -EIO;
+ }
+ 
++static void imac_cs42l83_reset(struct hda_codec *codec)
++{
++	struct sub_codec cs42l83;
++	int ret;
++
++	codec_info(codec, "iMac cs42l83 reset start\n");
++
++	memset(&cs42l83, 0, sizeof(cs42l83));
++
++	cs42l83.codec = codec;
++	cs42l83.addr = 0x90;
++	cs42l83.paged = 1;
++	cs42l83.last_page = 0;
++	cs42l83.suspended = 0;
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1301);
++	codec_dbg(codec, "iMac cs42l83 read 0x1301 = 0x%x\n", ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1303);
++	codec_dbg(codec, "iMac cs42l83 read 0x1303 = 0x%x\n", ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec, "iMac cs42l83 read 0x130b = 0x%x\n", ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130d);
++	codec_dbg(codec, "iMac cs42l83 read 0x130d = 0x%x\n", ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2001, 0x01);
++	codec_dbg(codec, "iMac cs42l83 write 0x2001 = 0x%x\n", ret);
++
++	codec_info(codec, "iMac cs42l83 reset end\n");
++}
++
++static void imac_cs42l83_patch(struct hda_codec *codec)
++{
++	struct sub_codec cs42l83;
++	int ret;
++
++	codec_info(codec, "iMac cs42l83 patch start\n");
++
++	memset(&cs42l83, 0, sizeof(cs42l83));
++
++	cs42l83.codec = codec;
++	cs42l83.addr = 0x90;
++	cs42l83.paged = 1;
++	cs42l83.last_page = 0;
++	cs42l83.suspended = 0;
++
++	ret = cs8409_i2c_write(&cs42l83, 0x4a21, 0x0021);
++	codec_dbg(codec, "iMac cs42l83 write 0x4a21 = 0x%x\n", ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x4a21);
++	codec_dbg(codec, "iMac cs42l83 READ BACK 0x4a21 = 0x%x\n", ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x5001, 0x0001);
++	codec_dbg(codec, "iMac cs42l83 write 0x5001 = 0x%x\n", ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x5001);
++	codec_dbg(codec, "iMac cs42l83 READ BACK 0x5001 = 0x%x\n", ret);
++
++	codec_info(codec, "iMac cs42l83 patch end\n");
++}
++
++#ifndef CS8409_VENDOR_NID
++#ifdef CS8409_PIN_VENDOR_WIDGET
++#define CS8409_VENDOR_NID CS8409_PIN_VENDOR_WIDGET
++#else
++#define CS8409_VENDOR_NID 0x47
++#endif
++#endif
++
++static unsigned int imac_cs8409_coef_read(struct hda_codec *codec,
++					  unsigned int idx)
++{
++	snd_hda_codec_write(codec, CS8409_VENDOR_NID, 0,
++			    AC_VERB_SET_COEF_INDEX, idx);
++	return snd_hda_codec_read(codec, CS8409_VENDOR_NID, 0,
++				  AC_VERB_GET_PROC_COEF, 0);
++}
++
++static void imac_cs8409_coef_write(struct hda_codec *codec,
++				   unsigned int idx, unsigned int val)
++{
++	snd_hda_codec_write(codec, CS8409_VENDOR_NID, 0,
++			    AC_VERB_SET_COEF_INDEX, idx);
++	snd_hda_codec_write(codec, CS8409_VENDOR_NID, 0,
++			    AC_VERB_SET_PROC_COEF, val);
++}
++
++
++
++
++static void imac_tdm_extra_sync_setup(struct hda_codec *codec)
++{
++	struct sub_codec dev;
++	int ret;
++
++	codec_info(codec, "iMac extra TDM sync setup start\n");
++
++	memset(&dev, 0, sizeof(dev));
++	dev.codec = codec;
++	dev.addr = 0x64;
++	dev.paged = 0;
++	dev.last_page = 0;
++	dev.suspended = 0;
++
++	ret = cs8409_i2c_write(&dev, 0x0014, 0x00e4);
++	codec_dbg(codec, "TDM DEV 0x64 WRITE 0x0014 PCMModeConfig = 0x%x\n", ret);
++
++	ret = cs8409_i2c_read(&dev, 0x0014);
++	codec_dbg(codec, "TDM DEV 0x64 READ BACK 0x0014 = 0x%x\n", ret);
++
++	memset(&dev, 0, sizeof(dev));
++	dev.codec = codec;
++	dev.addr = 0x28;
++	dev.paged = 0;
++	dev.last_page = 0;
++	dev.suspended = 0;
++
++	ret = cs8409_i2c_write(&dev, 0x0005, 0x0000);
++	codec_dbg(codec, "TDM DEV 0x28 WRITE 0x0005 value=0x0000 ret=0x%x\n", ret);
++
++	ret = cs8409_i2c_read(&dev, 0x0005);
++	codec_dbg(codec, "TDM DEV 0x28 READ BACK 0x0005 = 0x%x\n", ret);
++
++	ret = cs8409_i2c_write(&dev, 0x0004, 0x0051);
++	codec_dbg(codec, "TDM DEV 0x28 WRITE 0x0004 value=0x0051 ret=0x%x\n", ret);
++
++	ret = cs8409_i2c_read(&dev, 0x0004);
++	codec_dbg(codec, "TDM DEV 0x28 READ BACK 0x0004 = 0x%x\n", ret);
++
++	codec_info(codec, "iMac extra TDM sync setup end\n");
++}
++
++static void imac_tas576_boot_reset_setup(struct hda_codec *codec)
++{
++	struct sub_codec amp;
++	static const unsigned int addrs[4] = { 0xd8, 0xda, 0xdc, 0xde };
++	int i, ret;
++
++	codec_info(codec, "iMac TAS576 boot reset setup start\n");
++
++	for (i = 0; i < 4; i++) {
++		memset(&amp, 0, sizeof(amp));
++
++		amp.codec = codec;
++		amp.addr = addrs[i];
++		amp.paged = 0;
++		amp.last_page = 0;
++		amp.suspended = 0;
++
++		ret = cs8409_i2c_write(&amp, 0x0001, 0x00fc);
++		codec_dbg(codec, "TAS576 0x%x BOOT WRITE 0x0001 value=0x00fc ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0002, 0x0004);
++		codec_dbg(codec, "TAS576 0x%x BOOT WRITE 0x0002 value=0x0004 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0003, 0x0080);
++		codec_dbg(codec, "TAS576 0x%x BOOT WRITE 0x0003 value=0x0080 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0004, 0x00cf);
++		codec_dbg(codec, "TAS576 0x%x BOOT WRITE 0x0004 value=0x00cf ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0006, 0x0051);
++		codec_dbg(codec, "TAS576 0x%x BOOT WRITE 0x0006 value=0x0051 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0008, 0x0000);
++		codec_dbg(codec, "TAS576 0x%x BOOT WRITE 0x0008 value=0x0000 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0013, 0x0000);
++		codec_dbg(codec, "TAS576 0x%x BOOT WRITE 0x0013 value=0x0000 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0014, 0x0002);
++		codec_dbg(codec, "TAS576 0x%x BOOT WRITE 0x0014 value=0x0002 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_read(&amp, 0x0008);
++		codec_dbg(codec, "TAS576 0x%x BOOT READ BACK 0x0008 = 0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_read(&amp, 0x0014);
++		codec_dbg(codec, "TAS576 0x%x BOOT READ BACK 0x0014 = 0x%x\n", addrs[i], ret);
++	}
++
++	codec_info(codec, "iMac TAS576 boot reset setup end\n");
++}
++
++static void imac_tas576_tdm_slot_setup(struct hda_codec *codec)
++{
++	struct sub_codec amp;
++	static const unsigned int addrs[4] = { 0xd8, 0xda, 0xdc, 0xde };
++	static const unsigned int chans[4] = { 0x00, 0x02, 0x01, 0x03 };
++	static const unsigned int vols[4] = { 0x00cf, 0x00cf, 0x00cf, 0x00cf };
++	/* TAS576 slot mapping: 0xfc = muted, 0xfd = enabled */
++	static const unsigned int pwr[4]  = { 0x00fd, 0x00fd, 0x00fd, 0x00fd };
++	int i, ret;
++
++	codec_info(codec, "iMac TAS576 TDM slot setup start\n");
++
++	for (i = 0; i < 4; i++) {
++		memset(&amp, 0, sizeof(amp));
++
++		amp.codec = codec;
++		amp.addr = addrs[i];
++		amp.paged = 0;
++		amp.last_page = 0;
++		amp.suspended = 0;
++
++		ret = cs8409_i2c_write(&amp, 0x0002, 0x0044);
++		codec_dbg(codec, "TAS576 0x%x WRITE 0x0002 value=0x0044 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0003, 0x0080 | chans[i]);
++		codec_dbg(codec, "TAS576 0x%x WRITE 0x0003 value=0x%04x ret=0x%x\n",
++			   addrs[i], 0x0080 | chans[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0006, 0x0055);
++		codec_dbg(codec, "TAS576 0x%x WRITE 0x0006 value=0x0055 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0008, 0x0018);
++		codec_dbg(codec, "TAS576 0x%x WRITE 0x0008 value=0x0018 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0004, vols[i]);
++		codec_dbg(codec, "TAS576 0x%x WRITE 0x0004 value=0x%04x ret=0x%x\n",
++			   addrs[i], vols[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0013, 0x0000);
++		codec_dbg(codec, "TAS576 0x%x WRITE 0x0013 value=0x0000 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0002, 0x0044);
++		codec_dbg(codec, "TAS576 0x%x WRITE 0x0002 again value=0x0044 ret=0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_write(&amp, 0x0001, pwr[i]);
++		codec_dbg(codec, "TAS576 0x%x WRITE 0x0001 value=0x%04x ret=0x%x\n",
++			   addrs[i], pwr[i], ret);
++
++		ret = cs8409_i2c_read(&amp, 0x0001);
++		codec_dbg(codec, "TAS576 0x%x READ BACK 0x0001 POWER = 0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_read(&amp, 0x0002);
++		codec_dbg(codec, "TAS576 0x%x READ BACK 0x0002 MODE = 0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_read(&amp, 0x0003);
++		codec_dbg(codec, "TAS576 0x%x READ BACK 0x0003 SLOT = 0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_read(&amp, 0x0004);
++		codec_dbg(codec, "TAS576 0x%x READ BACK 0x0004 VOL = 0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_read(&amp, 0x0006);
++		codec_dbg(codec, "TAS576 0x%x READ BACK 0x0006 ANALOG = 0x%x\n", addrs[i], ret);
++
++		ret = cs8409_i2c_read(&amp, 0x0008);
++		codec_dbg(codec, "TAS576 0x%x READ BACK 0x0008 FAULT = 0x%x\n", addrs[i], ret);
++	}
++
++	codec_info(codec, "iMac TAS576 TDM slot setup end\n");
++}
++
++
++static void imac_cs8409_tdm_setup_amps12(struct hda_codec *codec)
++{
++	codec_info(codec, "iMac CS8409 TDM amps12 setup start\n");
++
++	imac_cs8409_coef_write(codec, 0x0019, 0x0800);
++	imac_cs8409_coef_write(codec, 0x001a, 0x0818);
++	imac_cs8409_coef_write(codec, 0x001b, 0x0840);
++	imac_cs8409_coef_write(codec, 0x001c, 0x0860);
++
++	imac_cs8409_coef_write(codec, 0x0003, 0x8000);
++	imac_cs8409_coef_write(codec, 0x0004, 0x08ff);
++	imac_cs8409_coef_write(codec, 0x0005, 0x0001);
++
++	imac_cs8409_coef_write(codec, 0x0002, 0x0280);
++	imac_cs8409_coef_write(codec, 0x0082, 0x5400);
++	imac_cs8409_coef_write(codec, 0x0001, 0x0220);
++
++	imac_cs8409_coef_write(codec, 0x0008, 0x0042);
++	imac_cs8409_coef_write(codec, 0x0007, 0x10ff);
++
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0008 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0008));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0007 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0007));
++
++	imac_cs8409_coef_write(codec, 0x006b, 0x001f);
++	codec_dbg(codec, "CS8409 COEF READ IMMEDIATE 0x006b = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x006b));
++
++	imac_cs8409_coef_write(codec, 0x0071, 0x400f);
++	codec_dbg(codec, "CS8409 COEF READ IMMEDIATE 0x0071 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0071));
++
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0019 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0019));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x001a = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x001a));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x001b = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x001b));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x001c = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x001c));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0003 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0003));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0004 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0004));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0005 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0005));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0002 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0002));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0082 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0082));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0001 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0001));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x006b = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x006b));
++	codec_dbg(codec, "CS8409 COEF READ BACK 0x0071 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0071));
++
++	snd_hda_codec_write(codec, CS8409_VENDOR_NID, 0, 0x7f0, 0x00b6);
++
++	codec_info(codec, "iMac CS8409 TDM amps12 setup end\n");
++}
++
++static void imac_cs42l83_configure_serial_port(struct hda_codec *codec)
++{
++	struct sub_codec cs42l83;
++	int ret;
++
++	codec_info(codec, "iMac cs42l83 configure serial port start\n");
++
++	memset(&cs42l83, 0, sizeof(cs42l83));
++
++	cs42l83.codec = codec;
++	cs42l83.addr = 0x90;
++	cs42l83.paged = 1;
++	cs42l83.last_page = 0;
++	cs42l83.suspended = 0;
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2505);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x2505 before update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2505, 0x0005);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2505 value=0x0005 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2505);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2505 after update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2502);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x2502 before update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2502, 0x0005);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2502 value=0x0005 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2502);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2502 after update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2503);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x2503 before update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2503, 0x008a);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2503 value=0x008a ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2503);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2503 after update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2506);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x2506 before update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2506, 0x00ca);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2506 value=0x00ca ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2506);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2506 after update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1208);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x1208 before update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1208, 0x0002);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1208 value=0x0002 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1208);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x1208 after update = 0x%x\n",
++		   ret);
++
++	codec_info(codec, "iMac cs42l83 configure serial port end\n");
++}
++
++static void imac_cs42l83_set_input_sample_rate(struct hda_codec *codec)
++{
++	struct sub_codec cs42l83;
++	int ret;
++
++	codec_info(codec, "iMac cs42l83 set input sample rate start\n");
++
++	memset(&cs42l83, 0, sizeof(cs42l83));
++
++	cs42l83.codec = codec;
++	cs42l83.addr = 0x90;
++	cs42l83.paged = 1;
++	cs42l83.last_page = 0;
++	cs42l83.suspended = 0;
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b at sample rate start = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2601);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x2601 before update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2601, 0x004a);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2601 value=0x004a ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2601);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2601 after update = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2503);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x2503 keep natural sample = 0x%x\n",
++		   ret);
++	codec_dbg(codec, "CS42L83 SKIP WRITE 0x2503 sample keep natural\n");
++
++	ret = cs8409_i2c_write(&cs42l83, 0x120a, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x120a value=0x0000 ret=0x%x\n",
++		   ret);
++	ret = cs8409_i2c_read(&cs42l83, 0x120a);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x120a = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1209);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x1209 before = 0x%x\n",
++		   ret);
++
++	ret |= 0x1;
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1209, ret);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1209 OR value ret=0x%x\n",
++		   ret);
++	ret = cs8409_i2c_read(&cs42l83, 0x1209);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x1209 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b at sample rate end = 0x%x\n",
++		   ret);
++
++	codec_info(codec, "iMac cs42l83 set input sample rate end\n");
++}
++
++static void imac_cs42l83_inithw(struct hda_codec *codec)
++{
++	struct sub_codec cs42l83;
++	int ret;
++
++	codec_info(codec, "iMac cs42l83 inithw start\n");
++
++	memset(&cs42l83, 0, sizeof(cs42l83));
++
++	cs42l83.codec = codec;
++	cs42l83.addr = 0x90;
++	cs42l83.paged = 1;
++	cs42l83.last_page = 0;
++	cs42l83.suspended = 0;
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1103);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x1103 = 0x%x\n",
++		   ret);
++	ret = cs8409_i2c_write(&cs42l83, 0x1103, 0x0022);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1103 value=0x0022 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1129, 0x0001);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1129 value=0x0001 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1320, 0x000f);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1320 value=0x000f ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x131b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x131b = 0x%x\n",
++		   ret);
++	ret = cs8409_i2c_write(&cs42l83, 0x131b, 0x0003);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x131b value=0x0003 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2302, 0x003f);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2302 value=0x003f ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1f01, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1f01 value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1121, 0x00a6);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1121 value=0x00a6 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1316, 0x0000);
++	ret = cs8409_i2c_write(&cs42l83, 0x1317, 0x0000);
++	ret = cs8409_i2c_write(&cs42l83, 0x1318, 0x0000);
++	ret = cs8409_i2c_write(&cs42l83, 0x1319, 0x0000);
++	ret = cs8409_i2c_write(&cs42l83, 0x131a, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1316-0x131a value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x131c);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x131c = 0x%x\n",
++		   ret);
++	ret = cs8409_i2c_write(&cs42l83, 0x131c, 0x001a);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x131c value=0x001a ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x131e, 0x0000);
++	ret = cs8409_i2c_write(&cs42l83, 0x131f, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x131e-0x131f value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1101);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x1101 inithw = 0x%x\n",
++		   ret);
++	ret = cs8409_i2c_write(&cs42l83, 0x1101, 0x00fe);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1101 inithw value=0x00fe ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1b75);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x1b75 = 0x%x\n",
++		   ret);
++	ret = cs8409_i2c_write(&cs42l83, 0x1b75, 0x009f);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1b75 value=0x009f ret=0x%x\n",
++		   ret);
++
++	codec_info(codec, "iMac cs42l83 inithw end\n");
++}
++
++static void imac_cs42l83_audio_output(struct hda_codec *codec)
++{
++	struct sub_codec cs42l83;
++	int ret;
++
++	codec_info(codec, "iMac cs42l83 audio output start\n");
++
++	memset(&cs42l83, 0, sizeof(cs42l83));
++
++	cs42l83.codec = codec;
++	cs42l83.addr = 0x90;
++	cs42l83.paged = 1;
++	cs42l83.last_page = 0;
++	cs42l83.suspended = 0;
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1207, 0x0020);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1207 ASP CLOCK = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b after 0x1207 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1501, 0x0001);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1501 PLL ON = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b after 0x1501 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1107);
++	codec_dbg(codec,
++		"CS42L83 READ 0x1107 before OSC ON = 0x%x\n",
++		ret);
++
++	/*
++	ret = cs8409_i2c_write(&cs42l83, 0x1107, 0x0001);
++	codec_dbg(codec,
++		"CS42L83 WRITE 0x1107 OSC ON value=0x0001 ret=0x%x\n",
++		ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1107);
++	codec_dbg(codec,
++		"CS42L83 READ BACK 0x1107 after OSC ON = 0x%x\n",
++		ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b after 0x1107 OSC ON block = 0x%x\n",
++		   ret);
++	*/
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1f06, 0x0002);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1f06 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b after 0x1f06 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2001, 0x000d);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2001 value=0x000d ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2001);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2001 after update 0x000d = 0x%x\n",
++		   ret);
++
++	codec_dbg(codec, "CS42L83 keep 0x2001 output state\n");
++
++	ret = cs8409_i2c_write(&cs42l83, 0x107e, 0x0099);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x107e value=0x0099 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1b08, 0x0030);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1b08 value=0x0030 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2102, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2102 value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x107e, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x107e restore value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1101, 0x00fe);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1101 output power = 0x00fe ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1101);
++	codec_dbg(codec,
++		   "CS42L83 READBACK 0x1101 output power after 0x00fe = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1101, 0x009e);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1101 output power = 0x009e ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1101, 0x0096);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1101 output power = 0x0096 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b SRC lock after output power = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2a04, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2a04 value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2a04);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2a04 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2a07, 0x0020);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2a07 value=0x0020 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2a07);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2a07 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2301, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2301 MIXER A VOL value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2303, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2303 value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2a02, 0x0002);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2a02 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2a05, 0x0002);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2a05 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x100b, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x100b value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2301);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2301 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2303);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2303 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2a02);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2a02 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2a05);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2a05 = 0x%x\n",
++		   ret);
++
++	codec_info(codec, "iMac cs42l83 audio output end\n");
++}
++
++static void imac_cs42l83_buffers_on(struct hda_codec *codec)
++{
++	struct sub_codec cs42l83;
++	int ret;
++
++	codec_info(codec, "iMac cs42l83 buffers on start\n");
++
++	memset(&cs42l83, 0, sizeof(cs42l83));
++
++	cs42l83.codec = codec;
++	cs42l83.addr = 0x90;
++	cs42l83.paged = 1;
++	cs42l83.last_page = 0;
++	cs42l83.suspended = 0;
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1101, 0x00fe);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1101 before buffers = 0x00fe ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x1101);
++	codec_dbg(codec,
++		   "CS42L83 READBACK 0x1101 before buffers after 0x00fe = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1101, 0x009e);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1101 before buffers = 0x009e ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1101, 0x0096);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1101 before buffers = 0x0096 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b before buffers step1 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x130b);
++	codec_dbg(codec,
++		   "CS42L83 READ 0x130b before buffers step2 = 0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x107e, 0x0099);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x107e value=0x0099 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x1b08, 0x0010);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x1b08 value=0x0010 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2102, 0x0020);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2102 value=0x0020 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x107e, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x107e value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2a01, 0x000c);
++
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2a01 BUFFERS ON value=0x000c ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2a01);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2a01 BUFFERS = 0x%x\n",
++		   ret);
++
++	codec_info(codec, "iMac cs42l83 buffers on end\n");
++}
++
++static void imac_cs42l83_buffers_off(struct hda_codec *codec)
++{
++	struct sub_codec cs42l83;
++	int ret;
++
++	codec_info(codec, "iMac cs42l83 buffers off start\n");
++
++	memset(&cs42l83, 0, sizeof(cs42l83));
++
++	cs42l83.codec = codec;
++	cs42l83.addr = 0x90;
++	cs42l83.paged = 1;
++	cs42l83.last_page = 0;
++	cs42l83.suspended = 0;
++
++	ret = cs8409_i2c_write(&cs42l83, 0x2a01, 0x0000);
++	codec_dbg(codec,
++		   "CS42L83 WRITE 0x2a01 BUFFERS OFF value=0x0000 ret=0x%x\n",
++		   ret);
++
++	ret = cs8409_i2c_read(&cs42l83, 0x2a01);
++	codec_dbg(codec,
++		   "CS42L83 READ BACK 0x2a01 BUFFERS OFF = 0x%x\n",
++		   ret);
++
++	codec_info(codec, "iMac cs42l83 buffers off end\n");
++}
++
+ /**
+  * cs8409_i2c_bulk_write - CS8409 I2C Write Sequence.
+  * @scodec: the codec instance
+@@ -366,6 +1330,74 @@
+ 	return ret;
+ }
+ 
++static const struct hda_pcm_stream cs42l83_apple_pcm_analog_playback = {
++	.rates = SNDRV_PCM_RATE_44100,
++};
++
++static const struct hda_pcm_stream cs42l83_apple_pcm_analog_capture = {
++	.rates = SNDRV_PCM_RATE_44100,
++};
++
++static void cs42l42_playback_pcm_hook(struct hda_pcm_stream *hinfo,
++				   struct hda_codec *codec,
++				   struct snd_pcm_substream *substream,
++				   int action);
++
++void cs8409_fixup_imac_amp(struct hda_codec *codec,
++				  const struct hda_fixup *fix, int action)
++{
++	struct cs8409_spec *spec = codec->spec;
++
++	if (action == HDA_FIXUP_ACT_PROBE) {
++		codec_info(codec, "iMac probe hook setup\n");
++		spec->gen.stream_analog_playback = &cs42l83_apple_pcm_analog_playback;
++		spec->gen.stream_analog_capture = &cs42l83_apple_pcm_analog_capture;
++		spec->gen.pcm_playback_hook = cs42l42_playback_pcm_hook;
++		return;
++	}
++
++	if (action != HDA_FIXUP_ACT_INIT)
++		return;
++
++	codec_info(codec, "iMac amp init start\n");
++
++	imac_cs8409_tdm_setup_amps12(codec);
++
++	imac_enable_i2c(codec);
++	imac_gpio_reset(codec);
++
++	imac_cs42l83_reset(codec);
++	msleep(20);
++	imac_cs42l83_reset(codec);
++
++	imac_cs42l83_inithw(codec);
++
++	imac_cs42l83_patch(codec);
++	imac_cs42l83_configure_serial_port(codec);
++	imac_cs42l83_set_input_sample_rate(codec);
++	imac_cs42l83_audio_output(codec);
++
++	/*
++	codec_dbg(codec, "iMac CS8409 coef 0x0001 refresh start\n");
++
++	codec_dbg(codec, "CS8409 COEF READ BEFORE 0x0001 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0001));
++
++	imac_cs8409_coef_write(codec, 0x0001, 0x0220);
++
++	codec_dbg(codec, "CS8409 COEF READ AFTER 0x0001 = 0x%x\n",
++		   imac_cs8409_coef_read(codec, 0x0001));
++
++	codec_dbg(codec, "iMac CS8409 coef 0x0001 refresh end\n");
++	*/
++
++	imac_tas576_boot_reset_setup(codec);
++	imac_tas576_tdm_slot_setup(codec);
++	imac_tdm_extra_sync_setup(codec);
++
++	codec_info(codec, "iMac amp init end\n");
++}
++
+ static int cs8409_build_controls(struct hda_codec *codec)
+ {
+ 	int err;
+@@ -579,17 +1611,176 @@
+ 	struct cs8409_spec *spec = codec->spec;
+ 	struct sub_codec *cs42l42;
+ 	int i;
++	unsigned int channels = 0;
+ 	bool mute;
+ 
++	if (substream && substream->runtime)
++		channels = substream->runtime->channels;
++
++	codec_dbg(codec, "iMac playback hook channels=%u action=%d\n",
++		   channels, action);
++
++	codec_dbg(codec, "iMac PLAYBACK HOOK ACTION=%d \n", action);
++
+ 	switch (action) {
++	case HDA_GEN_PCM_ACT_OPEN:
++		codec_dbg(codec, "iMac playback OPEN hook minimal\n");
++
++		codec_dbg(codec,
++			   "OPEN COEF 0x0001 = 0x%x\n",
++			   imac_cs8409_coef_read(codec, 0x0001));
++
++		codec_dbg(codec,
++			   "OPEN GPIO DATA = 0x%x\n",
++			   snd_hda_codec_read(codec,
++					      codec->core.afg,
++					      0,
++					      AC_VERB_GET_GPIO_DATA,
++					      0));
++
++		imac_cs42l83_buffers_on(codec);
++
++		codec_dbg(codec, "iMac playback OPEN minimal end\n");
++		break;
++
+ 	case HDA_GEN_PCM_ACT_PREPARE:
++
++		codec_dbg(codec,
++			   "PREPARE COEF 0x0001 = 0x%x\n",
++			   imac_cs8409_coef_read(codec, 0x0001));
++
++		codec_dbg(codec,
++			   "PREPARE GPIO DATA = 0x%x\n",
++			   snd_hda_codec_read(codec,
++					      codec->core.afg,
++					      0,
++					      AC_VERB_GET_GPIO_DATA,
++					      0));
++
++		codec_info(codec, "iMac playback prepare TDM refresh start\n");
++		imac_cs8409_tdm_setup_amps12(codec);
++		imac_tas576_tdm_slot_setup(codec);
++		imac_tdm_extra_sync_setup(codec);
++
++		if (channels >= 4) {
++			codec_dbg(codec, "iMac 4ch playback: force DAC stream/channel start\n");
++
++			snd_hda_codec_write(codec, CS8409_VENDOR_NID, 0,
++					    AC_VERB_SET_PROC_STATE, 0x00000001);
++
++			snd_hda_codec_write(codec, 0x02, 0,
++					    AC_VERB_SET_CHANNEL_STREAMID, 0x00);
++
++			imac_cs8409_coef_write(codec, 0x0017, 0x0001);
++
++			snd_hda_codec_write(codec, 0x03, 0,
++					    AC_VERB_SET_CHANNEL_STREAMID, 0x00);
++
++			imac_cs8409_coef_write(codec, 0x0017, 0x0003);
++
++			codec_dbg(codec, "CS8409 COEF READ BACK 0x0017 = 0x%x\n",
++				   imac_cs8409_coef_read(codec, 0x0017));
++
++			codec_dbg(codec,
++				   "CS8409 COEF READ BACK 0x0018 = 0x%x\n",
++				   imac_cs8409_coef_read(codec, 0x0018));
++
++			codec_dbg(codec, "iMac restore DAC stream format after syncConverters\n");
++
++			snd_hda_codec_write(codec, 0x02, 0,
++					    AC_VERB_SET_STREAM_FORMAT, 0x4033);
++			snd_hda_codec_write(codec, 0x02, 0,
++					    AC_VERB_SET_CHANNEL_STREAMID, 0x10);
++
++			snd_hda_codec_write(codec, 0x03, 0,
++					    AC_VERB_SET_STREAM_FORMAT, 0x4033);
++			snd_hda_codec_write(codec, 0x03, 0,
++					    AC_VERB_SET_CHANNEL_STREAMID, 0x12);
++
++			codec_dbg(codec, "iMac 4ch playback: force DAC stream/channel end\n");
++		} else {
++			codec_dbg(codec,
++				   "iMac 2ch playback: skip forced DAC stream/channel restore\n");
++		}
++
++		codec_dbg(codec, "iMac set speaker pin OUT on prepare start\n");
++
++		snd_hda_codec_write(codec, 0x24, 0,
++				    AC_VERB_SET_PIN_WIDGET_CONTROL, 0x40);
++		snd_hda_codec_write(codec, 0x25, 0,
++				    AC_VERB_SET_PIN_WIDGET_CONTROL, 0x40);
++
++		codec_dbg(codec, "iMac set speaker pin OUT on prepare end\n");
++
++		imac_cs42l83_buffers_on(codec);
++
++		codec_dbg(codec, "iMac clear HP DAC 0x0a stream on prepare\n");
++		snd_hda_codec_write(codec, 0x0a, 0,
++				    AC_VERB_SET_CHANNEL_STREAMID, 0x00);
++
++		codec_dbg(codec,
++			   "PREPARE END COEF 0x0001 = 0x%x\n",
++			   imac_cs8409_coef_read(codec, 0x0001));
++
++		codec_info(codec, "iMac playback prepare TDM refresh end\n");
+ 		mute = false;
+ 		spec->playback_started = 1;
+ 		break;
++
+ 	case HDA_GEN_PCM_ACT_CLEANUP:
++		codec_info(codec, "iMac playback cleanup\n");
++
++		imac_cs42l83_buffers_off(codec);
++
++		codec_dbg(codec, "iMac clear DAC stream/channel on cleanup start\n");
++
++		/*
++		 * iMac18,3 speaker route:
++		 *   0x02 -> 0x24
++		 *   0x03 -> 0x25
++		 *
++		 * Do not clear speaker DAC stream/channel on cleanup.
++		 *
++		 * Clearing 0x02/0x03 here breaks the next short ALSA
++		 * direct playback: RUN2 can start with speaker pins OUT
++		 * while DAC streams stay 0, resulting in silence.
++		 *
++		 * HP/external DAC 0x0a is not part of the internal
++		 * speaker route and can still be cleared.
++		 */
++		codec_info(codec, "iMac speaker DAC 0x02/0x03 stream clear skipped\n");
++
++		snd_hda_codec_write(codec, 0x0a, 0,
++				    AC_VERB_SET_CHANNEL_STREAMID, 0x00);
++
++		codec_dbg(codec, "iMac HP DAC 0x0a stream/channel cleared\n");
++
++		codec_dbg(codec, "iMac clear DAC stream/channel on cleanup end\n");
++
++		codec_dbg(codec, "iMac clear speaker pin on cleanup start\n");
++
++		snd_hda_codec_write(codec, 0x24, 0,
++				    AC_VERB_SET_PIN_WIDGET_CONTROL, 0x00);
++		snd_hda_codec_write(codec, 0x25, 0,
++				    AC_VERB_SET_PIN_WIDGET_CONTROL, 0x00);
++
++		codec_dbg(codec, "iMac clear speaker pin on cleanup end\n");
++
++		codec_dbg(codec, "iMac clear HP pin on cleanup start\n");
++
++		snd_hda_codec_write(codec, 0x2c, 0,
++				    AC_VERB_SET_PIN_WIDGET_CONTROL, 0x00);
++
++		codec_dbg(codec, "iMac clear HP pin on cleanup end\n");
++
+ 		mute = true;
+ 		spec->playback_started = 0;
+ 		break;
++
++	case HDA_GEN_PCM_ACT_CLOSE:
++		codec_info(codec, "iMac playback close\n");
++		return;
++
+ 	default:
+ 		return;
+ 	}
+@@ -613,12 +1804,19 @@
+ 	switch (action) {
+ 	case HDA_GEN_PCM_ACT_PREPARE:
+ 		mute = false;
+-		spec->capture_started = 1;
++		spec->playback_started = 1;
+ 		break;
++
+ 	case HDA_GEN_PCM_ACT_CLEANUP:
++		codec_dbg(codec, "iMac playback CLEANUP hook\n");
+ 		mute = true;
+-		spec->capture_started = 0;
++		spec->playback_started = 0;
+ 		break;
++
++	case HDA_GEN_PCM_ACT_CLOSE:
++		codec_dbg(codec, "iMac playback CLOSE hook\n");
++		break;
++
+ 	default:
+ 		return;
+ 	}
+diff -ruN clean/sound/hda/codecs/cirrus/cs8409.h modified/sound/hda/codecs/cirrus/cs8409.h
+--- clean/sound/hda/codecs/cirrus/cs8409.h	2026-06-19 21:05:01.337621502 +0900
++++ modified/sound/hda/codecs/cirrus/cs8409.h	2026-06-19 21:05:01.432621414 +0900
+@@ -268,6 +268,7 @@
+ 	CS8409_WARLOCK_MLK,
+ 	CS8409_WARLOCK_MLK_DUAL_MIC,
+ 	CS8409_CYBORG,
++	CS8409_FIXUP_IMAC_AMP,
+ 	CS8409_FIXUPS,
+ 	CS8409_DOLPHIN,
+ 	CS8409_DOLPHIN_FIXUPS,
+@@ -381,6 +382,8 @@
+ 
+ void cs8409_cs42l42_fixups(struct hda_codec *codec, const struct hda_fixup *fix, int action);
+ void dolphin_fixups(struct hda_codec *codec, const struct hda_fixup *fix, int action);
++void cs8409_fixup_imac_amp(struct hda_codec *codec,
++			   const struct hda_fixup *fix, int action);
+ 
+ extern const struct cs8409_cir_param cs8409_cdb35l56_four_hw_cfg[];
+ extern const struct hda_verb cs8409_cdb35l56_four_init_verbs[];
