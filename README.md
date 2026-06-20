@@ -28,6 +28,15 @@ The general build and install flow is the same as the Fedora 6.19.12 instruction
 
 Do not apply the Fedora 6.19.12 patch directly to kernel 7.0.12. Use the dedicated 7.0.12 test patch instead.
 
+## Ubuntu 24.04 HWE
+
+Ubuntu-specific test notes and a dedicated patch for Ubuntu 24.04 HWE / kernel 6.17.0-35 are available in a separate repository:
+
+https://github.com/network-garden-lab/imac18-3-cs8409-ubuntu-hwe-speaker-patch
+
+The Fedora and Ubuntu repositories share related CS8409 speaker knowledge, but their target kernel sources, build procedures, and module installation paths differ. Please use the repository for your own distribution and kernel version.
+
+
 ## Overview
 
 This repository provides experimental CS8409 patches and test notes for enabling built-in speaker playback on the 2017 27-inch iMac 5K / iMac18,3 running Fedora. The original confirmed patch targets Fedora kernel 6.19.12, and an additional experimental test patch is available for Fedora 44 / kernel 7.0.12.
